@@ -13,6 +13,7 @@ from app.ingestion.github import (
     should_include_file,
 )
 from app.main import app
+from app.services.repository_index import get_repository_index_registry
 
 API_URL = "https://api.github.com"
 REPOSITORY_URL = "https://github.com/example/project"
@@ -124,6 +125,30 @@ def test_file_filter_excludes_secrets_binaries_generated_and_dependencies() -> N
     assert not should_include_file("src/node_modules/package/index.js")
     assert not should_include_file("src/bundle.min.js")
     assert not should_include_file("src/generated/client.py")
+
+
+def test_language_detection_covers_json_and_toml_text_files() -> None:
+    tree = [
+        {"path": "config/settings.json", "type": "blob", "sha": "json", "size": 2},
+        {"path": "pyproject.toml", "type": "blob", "sha": "toml", "size": 2},
+    ]
+    blobs = {"json": b"{}", "toml": b"[]"}
+    transport = httpx.MockTransport(
+        lambda request: repository_handler(request, tree, blobs)
+    )
+
+    async def execute():
+        async with httpx.AsyncClient(transport=transport) as client:
+            return await GitHubRepositoryIndexer(
+                Settings(_env_file=None)
+            ).index(REPOSITORY_URL, client)
+
+    result = asyncio.run(execute())
+
+    assert [(file.path, file.language) for file in result.files] == [
+        ("config/settings.json", "JSON"),
+        ("pyproject.toml", "TOML"),
+    ]
 
 
 def test_index_preserves_metadata_and_filters_files() -> None:
@@ -473,8 +498,25 @@ def test_index_route_returns_repository_response() -> None:
         ) as client:
             yield client
 
+    class StubRegistry:
+        repository = None
+        settings = None
+
+        def build_and_store(self, repository, settings) -> int:
+            self.repository = repository
+            self.settings = settings
+            return len(repository.files)
+
+    registry = StubRegistry()
+
+    def override_registry() -> StubRegistry:
+        return registry
+
     async def execute():
         app.dependency_overrides[get_github_client] = override_client
+        app.dependency_overrides[
+            get_repository_index_registry
+        ] = override_registry
         try:
             async with httpx.AsyncClient(
                 transport=httpx.ASGITransport(app=app),
@@ -486,10 +528,15 @@ def test_index_route_returns_repository_response() -> None:
                 )
         finally:
             app.dependency_overrides.pop(get_github_client, None)
+            app.dependency_overrides.pop(
+                get_repository_index_registry, None
+            )
 
     result = asyncio.run(execute())
 
     assert result.status_code == 200
+    assert registry.repository.owner == "example"
+    assert registry.settings.app_name == "RepoSage"
     assert result.json() == {
         "owner": "example",
         "name": "project",

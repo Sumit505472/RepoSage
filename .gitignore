@@ -18,6 +18,15 @@ htmlcov/
 node_modules/
 dist/
 
+# Downloaded repositories, model caches, and generated indexes
+.cache/
+.model_cache/
+.repos/
+data/repositories/
+data/indexes/
+*.faiss
+*.index-metadata.json
+
 # Editors and operating systems
 .vscode/
 .idea/
