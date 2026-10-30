@@ -32,6 +32,9 @@ class StubModel:
     def get_sentence_embedding_dimension(self) -> int:
         return self.dimension
 
+    def get_embedding_dimension(self) -> int:
+        return self.dimension
+
     def encode(
         self,
         sentences: list[str],
@@ -55,6 +58,17 @@ def test_embedding_generator_validates_output_dimensions(monkeypatch) -> None:
 
     with pytest.raises(EmbeddingError, match="invalid vectors"):
         EmbeddingGenerator("test-model").embed(["source"])
+
+
+def test_embedding_generator_uses_current_dimension_api(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.retrieval.embeddings._load_model",
+        lambda _: StubModel(2, [[1.0, 0.0]]),
+    )
+
+    vectors = EmbeddingGenerator("test-model").embed(["source"])
+
+    assert vectors.shape == (1, 2)
 
 
 def test_embedding_generator_handles_empty_input_without_loading_model(

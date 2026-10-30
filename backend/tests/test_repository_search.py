@@ -3,6 +3,7 @@ import base64
 
 import httpx
 import numpy as np
+import pytest
 
 from app.api.routes.repositories import get_github_client
 from app.core.config import Settings, get_settings
@@ -159,6 +160,8 @@ def test_index_endpoint_builds_real_searchable_in_memory_index() -> None:
     assert result["semantic_score"] is not None
     assert result["keyword_score"] is not None
     assert result["hybrid_score"] > 0
+    assert result["hybrid_score"] != result["semantic_score"]
+    assert result["hybrid_score"] != result["keyword_score"]
 
 
 def test_search_returns_not_found_before_repository_is_indexed() -> None:
@@ -260,3 +263,89 @@ def test_registry_rejects_repository_above_chunk_limit() -> None:
         assert "chunk limit" in str(error)
     else:
         raise AssertionError("Repository above chunk limit was indexed")
+
+
+def test_reindexing_replaces_existing_index_atomically() -> None:
+    settings = Settings(
+        _env_file=None,
+        chunk_size_lines=10,
+        chunk_overlap_lines=0,
+    )
+    registry = RepositoryIndexRegistry(
+        embedder_factory=lambda _: DeterministicEmbedder()
+    )
+    original = RepositoryIndexResponse(
+        owner="example",
+        name="replace-test",
+        branch="main",
+        files=[
+            IndexedFile(
+                path="old.py",
+                language="Python",
+                source="legacy_marker = True\n",
+            )
+        ],
+    )
+    replacement = RepositoryIndexResponse(
+        owner="example",
+        name="replace-test",
+        branch="main",
+        files=[
+            IndexedFile(
+                path="new.py",
+                language="Python",
+                source="current_marker = True\n",
+            )
+        ],
+    )
+
+    registry.build_and_store(original, settings)
+    before = registry.search(
+        "https://github.com/example/replace-test",
+        "legacy_marker",
+        5,
+        settings,
+    )
+    registry.build_and_store(replacement, settings)
+    after = registry.search(
+        "https://github.com/example/replace-test",
+        "current_marker",
+        5,
+        settings,
+    )
+
+    assert before.results[0].file_path == "old.py"
+    assert after.results[0].file_path == "new.py"
+    assert all(result.file_path != "old.py" for result in after.results)
+
+
+@pytest.mark.parametrize(
+    "files",
+    [
+        [],
+        [IndexedFile(path="empty.py", language="Python", source="")],
+    ],
+)
+def test_empty_repository_and_empty_files_are_searchable_without_model(
+    files: list[IndexedFile],
+) -> None:
+    def unexpected_model(_: str):
+        raise AssertionError("Empty repositories must not load an embedder")
+
+    registry = RepositoryIndexRegistry(embedder_factory=unexpected_model)
+    settings = Settings(_env_file=None)
+    repository = RepositoryIndexResponse(
+        owner="example",
+        name="empty",
+        branch="main",
+        files=files,
+    )
+
+    assert registry.build_and_store(repository, settings) == 0
+    result = registry.search(
+        "https://github.com/example/empty",
+        "anything",
+        5,
+        settings,
+    )
+    assert result.results == []

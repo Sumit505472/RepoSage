@@ -57,7 +57,11 @@ class EmbeddingGenerator:
 
         model = _load_model(self.model_name)
         try:
-            dimension = model.get_sentence_embedding_dimension()
+            dimension_getter = getattr(model, "get_embedding_dimension", None)
+            if dimension_getter is None:
+                dimension = model.get_sentence_embedding_dimension()
+            else:
+                dimension = dimension_getter()
             with _MODEL_LOCK:
                 embeddings = np.asarray(
                     model.encode(

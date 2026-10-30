@@ -1,6 +1,6 @@
 from functools import lru_cache
 
-from pydantic import Field, SecretStr, model_validator
+from pydantic import AliasChoices, Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -25,6 +25,26 @@ class Settings(BaseSettings):
     )
     retrieval_candidate_count: int = Field(default=50, gt=0, le=200)
     retrieval_rrf_k: int = Field(default=60, gt=0)
+    gemini_api_key: SecretStr | None = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "GEMINI_API_KEY",
+            "REPOSAGE_GEMINI_API_KEY",
+        ),
+    )
+    gemini_model: str = Field(
+        default="gemini-3.5-flash-lite",
+        min_length=1,
+        max_length=100,
+        validation_alias=AliasChoices(
+            "GEMINI_MODEL",
+            "REPOSAGE_GEMINI_MODEL",
+        ),
+    )
+    gemini_timeout_seconds: float = Field(default=45.0, gt=0, le=180)
+    rag_context_chunks: int = Field(default=6, gt=0, le=12)
+    rag_context_max_characters: int = Field(default=24000, gt=0, le=100000)
+    rag_max_output_tokens: int = Field(default=1200, gt=0, le=4000)
 
     @model_validator(mode="after")
     def validate_chunk_overlap(self) -> "Settings":

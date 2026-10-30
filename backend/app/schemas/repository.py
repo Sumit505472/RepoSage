@@ -52,3 +52,34 @@ class RepositorySearchResponse(BaseModel):
     repository: str
     query: str
     results: list[RepositorySearchResult]
+
+
+class RepositoryAskRequest(BaseModel):
+    repository_url: str = Field(min_length=1, max_length=2048)
+    question: str = Field(min_length=1, max_length=2000)
+
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("question")
+    @classmethod
+    def question_must_not_be_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("Question must not be blank")
+        return value.strip()
+
+
+class RepositoryCitation(BaseModel):
+    source_id: str
+    chunk_id: str
+    file_path: str
+    start_line: int
+    end_line: int
+    relevant_content: str
+
+
+class RepositoryAskResponse(BaseModel):
+    repository: str
+    question: str
+    answer: str
+    insufficient_context: bool
+    citations: list[RepositoryCitation]
